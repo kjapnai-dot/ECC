@@ -7,7 +7,7 @@ Use this compact schema in the ledger or handoff artifact. Adapt field names to 
 ```text
 Work ID / role / normalized instruction SHA256:
 Objective / expected result / out of scope:
-Current state: planned | not_sent | sending | sent | received | working | verifying | returned | waiting | external_save_pending | complete
+Current state: planned | not_sent | sending | sent | received | working | verifying | returned | waiting | delivery_unknown | failed | external_save_pending | complete
 Owner and chat ID:
 Assigned files or systems:
 Reference version: commit, fixed snapshot, or artifact hash:
@@ -43,3 +43,26 @@ Reservation, ownership, and state transitions must be serialized by a lock or tr
 | `waiting` / `external_save_pending` | A required slot, approval, connection, or read-back is unavailable. This is not completion. |
 
 Verification and recording outcomes are separate from dispatch state: use `PASS`, `FAIL`, or `unconfirmed`, and attach the evidence path, version checked, and next owner. Never infer PASS from the absence of a reported failure.
+
+
+## Queue extension
+
+Keep these fields in the existing ledger alongside the handoff card. They describe local operating state; a record alone is not a persistent scheduler or atomic global journal. Read [priority queue operations](../../execution-coordinator/references/priority-queue.md) for selection, eligibility, and release rules.
+
+```text
+queue_id / work_id / role / stage / owner:
+chat_id / host_id / client_thread_id (setup only; never a substitute thread_id):
+enqueued_at / base_priority / eligible_wait_seconds / effective_priority:
+depends_on: [{queue_id, required_version, required_evidence}]
+eligibility: ready|blocked (non-capacity gates) / wait_reason / unblock_condition / observer / next_check_event:
+reference_version / reservation_key / prompt_path / normalized_instruction_sha256:
+dispatch_state / outcome: PASS|FAIL|unconfirmed / evidence:
+capacity_policy: total_worker_cap / role_caps / policy_version:
+slot_claim: role / owner / claimed_at / released_at / release_evidence:
+ack_due_at / progress_due_at / slice_due_at / last_observed_at:
+selected_at / selected_reason / next_owner / retry_count:
+```
+
+Use separate fields for queue stage, dispatch state, outcome, and slot ownership. A dependency identifies the exact version and evidence required; a prior version's PASS does not satisfy it. Preserve enqueue time and send/reservation history on return. Accumulate aging time only while non-capacity gates are ready but work is unscheduled; role-slot, total-slot, and platform-capacity waits count, while dependency, approval, connection, conflict, and unknown-delivery waits do not. A waiting row records one of `dependency`, `role_slot`, `total_slot`, `platform_capacity`, `ownership_conflict`, `approval`, `connection`, `delivery_unknown`, `stop_unconfirmed`, or `external_readback`, with the condition and event that can unblock it.
+
+A claim starts before creation/send; release requires completion or a confirmed safe stop with saved differences and no ongoing mutation. Keep unknown sends and unconfirmed stops occupied. Lower actual capacity causes fewer active owners or serial execution, not automatic extra chats. Existing-chat follow-ups need direct human authorization. Preserve `client_thread_id` for setup correlation; resolve a confirmed final `chat_id` before using threadId-only observations or sends.

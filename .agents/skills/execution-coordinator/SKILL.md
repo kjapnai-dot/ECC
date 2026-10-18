@@ -7,12 +7,12 @@ description: Turn an accepted request into a tracked implementation, independent
 
 Use this skill between the conversation owner and the implementation, independent verification, and recording owners. It is for work that needs explicit delegation, versioned handoffs, progress visibility, or GitHub/Linear recording. The coordinator plans and reconciles the run; it does not implement, verify its own implementation, or perform external writes.
 
-Read the project's routing rules and the [fresh-dispatch-recording](../fresh-dispatch-recording/SKILL.md) skill before dispatching. Use the project's existing ledger and prompt directory when they exist; do not create a competing source of truth.
+Read the project's routing rules and the [fresh-dispatch-recording](../fresh-dispatch-recording/SKILL.md) skill before dispatching. For role capacity, priority selection, dependency gates, timeouts, or Codex app dispatch, read [references/priority-queue.md](references/priority-queue.md). Use the project's existing ledger and prompt directory when they exist; do not create a competing source of truth.
 
 ## Boundaries
 
 - The conversation owner accepts the request, owns the project canonical specifications, and gives the coordinator the work ID and authorized scope.
-- The conversation owner keeps the first reply short and does not absorb long audits, implementation, independent verification, GitHub saves, or Linear updates; those activities remain delegated and asynchronous.
+- The conversation owner acknowledges intake before tool calls or waiting for worker capacity. It does not absorb long audits, implementation, independent verification, GitHub saves, or Linear updates; those activities remain delegated and asynchronous. A separate conversation path is a local operating policy, not a platform-reserved slot.
 - The coordinator owns the decomposition card, fresh-chat assignments, state transitions, timestamped summaries, and handoffs.
 - The implementation owner edits only the assigned scope and reports backup or recovery information and self-checks.
 - The independent verifier uses a separate chat and a separate procedure or environment. Its `PASS`, `FAIL`, or `unconfirmed` result is independent evidence.
@@ -29,6 +29,8 @@ Work ID / intake time / coordinator:
 Objective / expected result / target / out of scope / acceptance conditions:
 Reference version: path + commit, fixed snapshot, or artifact hash:
 Permissions, approvals, and sharing method:
+Queue: stage / priority / dependency evidence / waiting reason / next event
+Capacity policy: total worker cap / per-role caps / occupied owners / release evidence
 
 Implementation: new chat ID / prompt path / normalized instruction SHA256
   scope / state / started-at / changed files / backup / self-check / evidence / next action
@@ -50,11 +52,11 @@ Use the dispatch states from the fresh-dispatch skill: `planned`, `not_sent`, `s
 
 1. Confirm the work ID, objective, target, out-of-scope area, acceptance conditions, reference version, permissions, and existing ledger entries. If the work ID already has an initial dispatch, stop duplicate creation and route only an additional condition to the existing owner.
 2. Split the request into implementation, independent verification, and recording. State the owner, allowed files or systems, evidence location, and return condition for each. Treat GitHub and Linear as separate recording gates; use separate fresh chats if their permissions or owners differ.
-3. Normalize each exact instruction as UTF-8 with LF line endings, Unicode NFC, no trailing line whitespace, and one final LF. Reserve `(work_id, role, normalized_instruction_sha256)` with one send owner before sending. A hash or a manual check alone is not atomic duplicate prevention; without a lock or transaction, record the design as unconfirmed and wait.
-4. Create a new chat for every assigned work. Reuse is allowed only with explicit user authorization recorded in the card. Save the exact prompt under the configured prompt directory. Send the short handoff card and minimum fixed references, then record a concrete send-success signal and the recipient's read-back. Never report `sent` for `reserved`, `sending`, `delivery_unknown`, or `waiting`.
+3. Normalize each exact instruction as UTF-8 with LF line endings, Unicode NFC, no trailing line whitespace, and one final LF. Reserve `(work_id, role, normalized_instruction_sha256)` with one send owner before sending. A hash or a manual check alone is not atomic duplicate prevention; without a lock or transaction, do not claim atomic protection. Use only the project-authorized single-sender serial fallback, and wait if ownership or delivery cannot be established.
+4. Enqueue one actionable stage per owner; select only dependency-ready work within both total and role caps. Create a new chat when its first stage is eligible, rather than starting a worker to wait for dependencies. Reuse is allowed only with explicit user authorization recorded in the card. Save the exact prompt under the configured prompt directory. Send the short handoff card and minimum fixed references, then record a concrete send-success signal and the recipient's read-back. Never report `sent` for `reserved`, `sending`, `delivery_unknown`, or `waiting`.
 5. On timeout, query the operation or chat ID. Do not create another chat or resend while delivery is unknown. Retry at most once in the same chat with the same reservation key, and only after non-delivery is confirmed. A second failure or unresolvable state returns to the conversation owner.
 6. When implementation is complete, freeze the checked version and hand that version, changed files, backup, self-checks, unresolved items, and evidence location to the independent verifier. Do not ask the verifier to repeat the implementation owner's conclusion. After verification, hand the report and evidence to the recording owner.
-7. Record progress as a short JST line containing state, owner, observed fact, evidence, and one next action. If a result is not available, write `unconfirmed` or `waiting`; do not describe an unstarted or blocked task as running in the background.
+7. On completion or a confirmed safe stop, release the local slot and select the next eligible owner in that active turn. If none qualifies, record the blocking condition and next event. Keep unknown delivery or unconfirmed stops occupied; never replace them with a duplicate chat. Record progress as a short JST line containing state, owner, observed fact, evidence, and one next action. If a result is not available, write `unconfirmed` or `waiting`; do not describe an unstarted or blocked task as running in the background.
 
 ## Failure, rollback, and completion
 
